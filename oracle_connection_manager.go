@@ -13,10 +13,15 @@ import (
 type OracleConnectionManager struct {
 	ConnectionString string
 
-	mu         sync.Mutex
-	db         *sql.DB
+	mu sync.Mutex
+	db *sql.DB
+
+	open        func(driverName, dataSourceName string) (*sql.DB, error)
+	ping        func(context.Context, *sql.DB) error
 	initialized bool
 }
+
+var oracleDriverName = "oracle"
 
 var _ storage.ConnectionManager[*sql.DB] = &OracleConnectionManager{}
 
@@ -50,7 +55,11 @@ func (x *OracleConnectionManager) Take(ctx context.Context) (*sql.DB, error) {
 		return x.db, nil
 	}
 
-	db, err := sql.Open("oracle", x.ConnectionString)
+	open := x.open
+	if open == nil {
+		open = sql.Open
+	}
+	db, err := open(oracleDriverName, x.ConnectionString)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +69,11 @@ func (x *OracleConnectionManager) Take(ctx context.Context) (*sql.DB, error) {
 	db.SetMaxIdleConns(5)
 
 	// 测试连接
-	if err := db.PingContext(ctx); err != nil {
+	ping := x.ping
+	if ping == nil {
+		ping = func(ctx context.Context, db *sql.DB) error { return db.PingContext(ctx) }
+	}
+	if err := ping(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}

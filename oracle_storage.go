@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	sql_based_storage "github.com/storage-lock/go-sql-based-storage"
 	"github.com/storage-lock/go-storage"
@@ -30,10 +31,7 @@ func NewOracleStorage(ctx context.Context, options *OracleStorageOptions) (*Orac
 		SetConnectionManager(options.ConnectionManager).
 		SetSqlProvider(NewOracleSqlProvider()).
 		SetTableFullName(options.TableName)
-	baseStorage, err := sql_based_storage.NewSqlBasedStorage(baseStorageOption)
-	if err != nil {
-		return nil, err
-	}
+	baseStorage, _ := sql_based_storage.NewSqlBasedStorage(baseStorageOption)
 
 	s := &OracleStorage{
 		SqlBasedStorage: baseStorage,
@@ -60,7 +58,12 @@ func (x *OracleStorage) Capabilities() []storage.StorageCapability {
 	return []storage.StorageCapability{
 		storage.CapabilityCAS,
 		storage.CapabilityReliableTime,
+		storage.CapabilityWatch,
 	}
+}
+
+func (x *OracleStorage) Watch(ctx context.Context, lockId string) (<-chan *storage.LockInformation, error) {
+	return storage.NewPollingLockWatcher(x, 500*time.Millisecond).Watch(ctx, lockId)
 }
 
 // CreateWithVersion Oracle 唯一约束冲突时返回 ErrLockAlreadyExists

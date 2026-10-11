@@ -22,13 +22,21 @@ func NewOracleSqlProvider() *OracleSqlProvider {
 
 // CreateTableSql Oracle 创建表的 SQL
 // Oracle 不支持 AUTO_INCREMENT，使用序列和触发器或直接插入值
+//
+// 注意：列名必须与 Sql92Provider 未被本 Provider 覆盖的
+// CreateWithVersionSql/UpdateWithVersionSql/DeleteWithVersionSql/FindLockInformationJsonStringByIdSql
+// 保持一致（lock_id/owner_id/version/lock_information_json_string）——这几个方法本 Provider
+// 没有重写，会直接继承基类实现，如果表结构的列名对不上，CAS 相关的每条 SQL 都会在真实 Oracle 上
+// 报"invalid identifier"（ORA-00904）。修复前这里曾经是 lock_id/version/json_data/created_at，
+// 缺 owner_id 且 JSON 列名对不上，导致本存储在真实 Oracle 上完全不可用（未接入真实驱动测试，
+// 靠走读代码发现）。
 func (x *OracleSqlProvider) CreateTableSql(ctx context.Context, tableFullName string) (string, []any) {
 	// Oracle 表名通常用大写，但保留用户指定的格式
 	sql := `CREATE TABLE ` + tableFullName + ` (
 		lock_id VARCHAR2(255) PRIMARY KEY,
+		owner_id VARCHAR2(255) NOT NULL,
 		version NUMBER(20) NOT NULL,
-		json_data CLOB NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		lock_information_json_string CLOB NOT NULL
 	)`
 	return sql, nil
 }
@@ -44,7 +52,8 @@ func (x *OracleSqlProvider) NowTimestampSql(ctx context.Context, tableFullName s
 }
 
 // ListLockInformationJsonStringSql Oracle 列出所有锁
-// Oracle 不支持 LIMIT，使用 ROWNUM 或者 FETCH FIRST
+// 修复：原来查询的是不存在的 json_data 列（与 CreateTableSql 的列名不一致，见上），改为实际的
+// lock_information_json_string 列。
 func (x *OracleSqlProvider) ListLockInformationJsonStringSql(ctx context.Context, tableFullName string) (string, []any) {
-	return `SELECT json_data FROM ` + tableFullName, nil
+	return `SELECT lock_information_json_string FROM ` + tableFullName, nil
 }
